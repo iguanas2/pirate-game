@@ -2,8 +2,11 @@ import { Application, Container, Graphics, Sprite, Ticker, Texture } from 'pixi.
 import type { EnemyUnit, GameState, PlayerUnit } from '../sim';
 import { loadGameTextures, type AssetProgress } from './assetLoader';
 
-const ARENA_WIDTH = 960;
-const ARENA_HEIGHT = 540;
+const VIEWPORT_WIDTH = 960;
+const VIEWPORT_HEIGHT = 540;
+const WORLD_WIDTH = 2880;
+const WORLD_HEIGHT = 1620;
+const CAMERA_ZOOM = 1.2;
 
 interface RendererInitOptions {
   container: HTMLDivElement;
@@ -36,6 +39,7 @@ export class GamePixiRenderer {
   private host: HTMLDivElement | null = null;
   private resizeHandler: (() => void) | null = null;
   private initToken = 0;
+  private camera = { x: 0, y: 0 };
 
   async init(options: RendererInitOptions) {
     const { container, signal, onProgress, onError } = options;
@@ -46,10 +50,13 @@ export class GamePixiRenderer {
       this.textures = await loadGameTextures(onProgress, signal);
       if (signal?.aborted || token !== this.initToken) return;
 
+      const viewportWidth = Math.max(1, container.clientWidth || VIEWPORT_WIDTH);
+      const viewportHeight = Math.max(1, container.clientHeight || VIEWPORT_HEIGHT);
+
       this.app = new Application();
       await this.app.init({
-        width: ARENA_WIDTH,
-        height: ARENA_HEIGHT,
+        width: viewportWidth,
+        height: viewportHeight,
         antialias: true,
         backgroundAlpha: 0,
         resolution: window.devicePixelRatio || 1,
@@ -70,8 +77,8 @@ export class GamePixiRenderer {
 
       const waterTexture = this.textures.water ?? Texture.WHITE;
       const background = Sprite.from(waterTexture);
-      background.width = ARENA_WIDTH;
-      background.height = ARENA_HEIGHT;
+      background.width = WORLD_WIDTH;
+      background.height = WORLD_HEIGHT;
       this.backgroundLayer.addChild(background);
 
       this.root.addChild(this.backgroundLayer, this.islandLayer, this.projectileLayer, this.shipLayer, this.effectLayer);
@@ -94,11 +101,16 @@ export class GamePixiRenderer {
       return;
     }
 
+    const viewportWidth = Math.max(1, this.app.renderer.width || VIEWPORT_WIDTH);
+    const viewportHeight = Math.max(1, this.app.renderer.height || VIEWPORT_HEIGHT);
+    this.camera.x = game.player.position.x - viewportWidth / (2 * CAMERA_ZOOM);
+    this.camera.y = game.player.position.y - viewportHeight / (2 * CAMERA_ZOOM);
+
     this.renderBackground();
     this.renderIslands(game);
     this.renderShips(game);
     this.renderProjectiles(game);
-    this.updateLayout();
+    this.updateLayout(game);
   }
 
   destroy() {
@@ -140,17 +152,29 @@ export class GamePixiRenderer {
     this.host.addEventListener('resize', this.resizeHandler);
   };
 
-  private updateLayout = () => {
+  private updateLayout = (game?: GameState) => {
     if (!this.app || !this.root || !this.host) return;
 
     const bounds = this.host.getBoundingClientRect();
-    const width = Math.max(1, bounds.width || ARENA_WIDTH);
-    const height = Math.max(1, bounds.height || ARENA_HEIGHT);
-    const scale = Math.min(width / ARENA_WIDTH, height / ARENA_HEIGHT);
+    const width = Math.max(1, bounds.width || VIEWPORT_WIDTH);
+    const height = Math.max(1, bounds.height || VIEWPORT_HEIGHT);
 
-    this.app.renderer.resize(ARENA_WIDTH, ARENA_HEIGHT);
-    this.root.scale.set(scale);
-    this.root.position.set((width - ARENA_WIDTH * scale) / 2, (height - ARENA_HEIGHT * scale) / 2);
+    const worldWidth = width / CAMERA_ZOOM;
+    const worldHeight = height / CAMERA_ZOOM;
+
+    const cameraX = game
+      ? Math.min(Math.max(game.player.position.x - worldWidth / 2, 0), WORLD_WIDTH - worldWidth)
+      : Math.min(Math.max(this.camera.x, 0), WORLD_WIDTH - worldWidth);
+    const cameraY = game
+      ? Math.min(Math.max(game.player.position.y - worldHeight / 2, 0), WORLD_HEIGHT - worldHeight)
+      : Math.min(Math.max(this.camera.y, 0), WORLD_HEIGHT - worldHeight);
+
+    this.camera.x = cameraX;
+    this.camera.y = cameraY;
+
+    this.app.renderer.resize(width, height);
+    this.root.scale.set(CAMERA_ZOOM);
+    this.root.position.set(-cameraX * CAMERA_ZOOM, -cameraY * CAMERA_ZOOM);
   };
 
   private onTick = (ticker: Ticker) => {
@@ -182,8 +206,8 @@ export class GamePixiRenderer {
     this.backgroundLayer.removeChildren();
 
     const tileSize = 64;
-    const columns = Math.ceil(ARENA_WIDTH / tileSize) + 1;
-    const rows = Math.ceil(ARENA_HEIGHT / tileSize) + 1;
+    const columns = Math.ceil(WORLD_WIDTH / tileSize) + 1;
+    const rows = Math.ceil(WORLD_HEIGHT / tileSize) + 1;
 
     for (let row = 0; row < rows; row += 1) {
       for (let col = 0; col < columns; col += 1) {
@@ -219,18 +243,26 @@ export class GamePixiRenderer {
       islandContainer.y = island.y;
       islandContainer.pivot.set(0, 0);
 
-      const tileSize = island.radius * 2 / 3;
-      const tiles = islandTiles.map((tileKey, index) => {
-        const sprite = Sprite.from(this.textures[tileKey] ?? Texture.WHITE);
-        sprite.width = tileSize;
-        sprite.height = tileSize;
-        const col = index % 3;
-        const row = Math.floor(index / 3);
-        sprite.x = col * tileSize;
-        sprite.y = row * tileSize;
-        sprite.anchor.set(0);
-        return sprite;
-      });
+      const size = island.size;
+      const tileSize = (island.radius * 2) / size;
+      const tiles: Sprite[] = [];
+
+      for (let row = 0; row < size; row += 1) {
+        for (let col = 0; col < size; col += 1) {
+          const isFourByFour = size === 4;
+          const tileKey = isFourByFour
+            ? `island2-${row + 1}x${col + 1}`
+            : islandTiles[Math.min(row * size + col, islandTiles.length - 1)];
+
+          const sprite = Sprite.from(this.textures[tileKey] ?? Texture.WHITE);
+          sprite.width = tileSize;
+          sprite.height = tileSize;
+          sprite.x = col * tileSize;
+          sprite.y = row * tileSize;
+          sprite.anchor.set(0);
+          tiles.push(sprite);
+        }
+      }
 
       islandContainer.addChild(...tiles);
       islandContainer.position.set(island.x - island.radius, island.y - island.radius);
@@ -252,8 +284,8 @@ export class GamePixiRenderer {
       if (!current) {
         const sprite = Sprite.from(this.getShipTexture(unit, variant));
         sprite.anchor.set(0.5);
-        sprite.width = 66 * 0.3;
-        sprite.height = 113 * 0.3;
+        sprite.width = 66 * 0.42;
+        sprite.height = 113 * 0.42;
         sprite.rotation = this.toVisualAngle(unit.heading);
 
         const bar = new Container();
@@ -409,12 +441,12 @@ export class GamePixiRenderer {
     }
 
     const rect = this.host.getBoundingClientRect();
-    const scaleX = ARENA_WIDTH / rect.width;
-    const scaleY = ARENA_HEIGHT / rect.height;
+    const scaleX = VIEWPORT_WIDTH / rect.width;
+    const scaleY = VIEWPORT_HEIGHT / rect.height;
 
     return {
-      x: (point.x - rect.left) * scaleX,
-      y: (point.y - rect.top) * scaleY,
+      x: (point.x - rect.left) * scaleX + this.camera.x,
+      y: (point.y - rect.top) * scaleY + this.camera.y,
     };
   }
 
@@ -425,8 +457,8 @@ export class GamePixiRenderer {
 
     const rect = this.host.getBoundingClientRect();
     return {
-      x: (point.x / ARENA_WIDTH) * rect.width,
-      y: (point.y / ARENA_HEIGHT) * rect.height,
+      x: (point.x - this.camera.x / 1) / VIEWPORT_WIDTH * rect.width,
+      y: (point.y - this.camera.y / 1) / VIEWPORT_HEIGHT * rect.height,
     };
   }
 }

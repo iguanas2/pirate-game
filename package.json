@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "perf:benchmark": "npx playwright test e2e/perf.spec.ts --project=chromium-desktop --reporter=list"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.1",

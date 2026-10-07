@@ -9,6 +9,28 @@ import { createNormalizedInputState, normalizeInputState, toSimulationInput, typ
 import { GamePixiRenderer, type AssetProgress } from './game/render';
 import { createInitialGameState, formatTime, step, type GameState } from './game/sim';
 import { getGameUiSnapshot, publishGameUiSnapshot, resetGameUiSnapshot, subscribeToGameUi } from './ui/gameUiStore';
+import healthFrame from '../assets/png/default/ui/hud/health_frame.png';
+import healthFillGreen from '../assets/png/default/ui/hud/health_fill_green.png';
+import healthFillAmber from '../assets/png/default/ui/hud/health_fill_amber.png';
+import healthFillRed from '../assets/png/default/ui/hud/health_fill_red.png';
+import counterPanel from '../assets/png/default/ui/hud/counter_panel.png';
+import iconHeart from '../assets/png/default/ui/hud/icon_heart.png';
+import iconScore from '../assets/png/default/ui/hud/icon_score.png';
+import iconTime from '../assets/png/default/ui/hud/icon_time.png';
+import pauseButtonNormal from '../assets/png/default/ui/controls/button_round_normal.png';
+import pauseIcon from '../assets/png/default/ui/controls/icon_pause.png';
+import fireButtonNormal from '../assets/png/default/ui/controls/button_round_normal.png';
+import fireButtonPressed from '../assets/png/default/ui/controls/button_round_pressed.png';
+import fireFrontIcon from '../assets/png/default/ui/controls/icon_fire_front.png';
+import fireLeftIcon from '../assets/png/default/ui/controls/icon_fire_left.png';
+import fireRightIcon from '../assets/png/default/ui/controls/icon_fire_right.png';
+import menuPanel from '../assets/png/default/ui/menu/panel_menu.png';
+import titlePirateBattle from '../assets/png/default/ui/menu/title_pirate_battle.png';
+import buttonPrimaryNormal from '../assets/png/default/ui/menu/button_primary_normal.png';
+import buttonPrimaryPressed from '../assets/png/default/ui/menu/button_primary_pressed.png';
+import buttonSecondaryNormal from '../assets/png/default/ui/menu/button_secondary_normal.png';
+import buttonSecondaryPressed from '../assets/png/default/ui/menu/button_secondary_pressed.png';
+import previewBackground from '../assets/sample.png';
 import './App.css';
 
 type Screen = 'menu' | 'options' | 'match' | 'result';
@@ -135,6 +157,8 @@ function App() {
   const [validationErrors, setValidationErrors] = useState<Partial<Record<keyof GameSettingsFormState, string>>>({});
   const [isPaused, setIsPaused] = useState(false);
   const [scenario, setScenario] = useState<NetworkScenarioName>(() => readScenarioState().name);
+  const [menuDetail, setMenuDetail] = useState<'ranking' | 'history' | 'mock' | null>(null);
+  const [pressedWeapon, setPressedWeapon] = useState<'fireFront' | 'fireLeft' | 'fireRight' | null>(null);
 
   const inputRef = useRef<NormalizedInputState>(defaultInputState());
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -321,10 +345,6 @@ function App() {
     setLiveAnnouncement('Returned to the main menu.');
   };
 
-  const restartMatch = () => {
-    startMatch();
-  };
-
   const advanceTestClock = (ms: number) => {
     setGame((previous) => {
       if (!previous) return previous;
@@ -494,24 +514,40 @@ function App() {
       const dt = Math.min((now - last) / 1000, 0.05);
       last = now;
 
-      setGame((previous) => {
-        if (!previous) return previous;
+      const previous = gameRef.current;
+      if (!previous) {
+        frameId = window.requestAnimationFrame(tick);
+        return;
+      }
 
-        const next = step(previous, toSimulationInput({ ...inputRef.current, paused: isPaused || inputRef.current.paused }), dt);
+      const next = step(previous, toSimulationInput({ ...inputRef.current, paused: isPaused || inputRef.current.paused }), dt);
+      gameRef.current = next;
 
-        if (now - lastUiEmit >= 100) {
-          publishGameUiSnapshot({
-            score: next.score,
-            timeLeftMs: next.remainingMs,
-            hp: next.player.hp,
-            maxHp: next.player.maxHp,
-            status: isPaused ? 'paused' : next.status,
-          });
-          lastUiEmit = now;
-        }
+      if (screen === 'match' && rendererRef.current) {
+        rendererRef.current.updateFromState(next);
+      }
 
-        return next;
-      });
+      if (now - lastUiEmit >= 100) {
+        publishGameUiSnapshot({
+          score: next.score,
+          timeLeftMs: next.remainingMs,
+          hp: next.player.hp,
+          maxHp: next.player.maxHp,
+          status: isPaused ? 'paused' : next.status,
+        });
+        lastUiEmit = now;
+      }
+
+      const shouldSyncReact =
+        previous.status !== next.status ||
+        previous.score !== next.score ||
+        previous.player.hp !== next.player.hp ||
+        previous.lastEvent !== next.lastEvent ||
+        previous.remainingMs <= 0 && next.status === 'finished';
+
+      if (shouldSyncReact) {
+        setGame(next);
+      }
 
       frameId = window.requestAnimationFrame(tick);
     };
@@ -657,17 +693,105 @@ function App() {
 
   const setWeaponButton = (key: 'fireFront' | 'fireLeft' | 'fireRight', pressed: boolean) => {
     syncInputState({ [key]: pressed });
+    setPressedWeapon(pressed ? key : null);
   };
 
+  const getWeaponButtonStyle = (key: 'fireFront' | 'fireLeft' | 'fireRight') => ({
+    backgroundImage: `url(${pressedWeapon === key ? fireButtonPressed : fireButtonNormal})`,
+    backgroundSize: '100% 100%',
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'center',
+    backgroundColor: 'transparent',
+  });
+
   const isLoading = assetProgress.loaded < assetProgress.total || (assetError === null && assetProgress.percent === 0);
+  const healthRatio = uiSnapshot.maxHp > 0 ? uiSnapshot.hp / uiSnapshot.maxHp : 0;
+  const healthFillAsset = healthRatio > 0.65 ? healthFillGreen : healthRatio > 0.25 ? healthFillAmber : healthFillRed;
+
+  const createMenuButtonStyle = (variant: 'primary' | 'secondary', pressed = false) => ({
+    backgroundImage: `url(${pressed
+      ? (variant === 'primary' ? buttonPrimaryPressed : buttonSecondaryPressed)
+      : (variant === 'primary' ? buttonPrimaryNormal : buttonSecondaryNormal)})`,
+    backgroundSize: '100% 100%',
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'center',
+    backgroundColor: 'transparent',
+    border: 'none',
+    boxShadow: 'none',
+  });
 
   const renderMatchScreen = () => (
-    <>
+    <div className="match-screen">
       <header className="hud-bar">
-        <div><strong>Score</strong><span>{uiSnapshot.score}</span></div>
-        <div><strong>Time</strong><span>{formatTime(uiSnapshot.timeLeftMs)}</span></div>
-        <div><strong>HP</strong><span>{uiSnapshot.hp}/{uiSnapshot.maxHp}</span></div>
-        <div><strong>Status</strong><span>{isPaused ? 'paused' : uiSnapshot.status}</span></div>
+        <div
+          className="hud-panel hud-life"
+          style={{
+            backgroundImage: `url(${healthFrame})`,
+            backgroundSize: '100% 100%',
+            backgroundRepeat: 'no-repeat',
+          }}
+        >
+          <div className="hud-row">
+            <span className="hud-icon" style={{ backgroundImage: `url(${iconHeart})` }} />
+            <span className="hud-label">HP</span>
+          </div>
+
+          <div className="health-meter" aria-label={`Health ${uiSnapshot.hp} of ${uiSnapshot.maxHp}`}>
+            <span
+              className="health-fill"
+              style={{
+                width: `${Math.max(0, Math.min(100, healthRatio * 100))}%`,
+                backgroundImage: `url(${healthFillAsset})`,
+              }}
+            />
+          </div>
+
+          <strong>{uiSnapshot.hp}/{uiSnapshot.maxHp}</strong>
+        </div>
+
+        <div
+          className="hud-panel hud-score"
+          style={{
+            backgroundImage: `url(${counterPanel})`,
+            backgroundSize: '100% 100%',
+            backgroundRepeat: 'no-repeat',
+          }}
+        >
+          <div className="hud-row">
+            <span className="hud-icon" style={{ backgroundImage: `url(${iconScore})` }} />
+            <span className="hud-label">Score</span>
+          </div>
+          <strong>{uiSnapshot.score}</strong>
+        </div>
+
+        <div
+          className="hud-panel hud-time"
+          style={{
+            backgroundImage: `url(${counterPanel})`,
+            backgroundSize: '100% 100%',
+            backgroundRepeat: 'no-repeat',
+          }}
+        >
+          <div className="hud-row">
+            <span className="hud-icon" style={{ backgroundImage: `url(${iconTime})` }} />
+            <span className="hud-label">Time</span>
+          </div>
+          <strong>{formatTime(uiSnapshot.timeLeftMs)}</strong>
+        </div>
+
+        <button
+          type="button"
+          className="hud-pause"
+          onClick={isPaused ? resumeMatch : () => clearPause('manual')}
+          aria-label={isPaused ? 'Resume match' : 'Pause match'}
+          style={{
+            backgroundImage: `url(${pauseButtonNormal})`,
+            backgroundSize: '100% 100%',
+            backgroundRepeat: 'no-repeat',
+          }}
+        >
+          <span className="pause-icon" style={{ backgroundImage: `url(${pauseIcon})` }} />
+        </button>
       </header>
 
       <div className="arena-shell">
@@ -675,12 +799,15 @@ function App() {
 
         {isPaused && (
           <div className="pause-overlay" aria-live="polite">
-            <div className="pause-menu">
-              <h2>Paused</h2>
-              <div className="pause-actions">
-                <button type="button" className="primary" onClick={resumeMatch}>Resume</button>
-                <button type="button" className="secondary" onClick={restartMatch}>Restart</button>
-                <button type="button" className="secondary" onClick={quitToMenu}>Main menu</button>
+            <div className="pause-menu" style={{ backgroundImage: `url(${menuPanel})`, backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat' }}>
+              <div className="pause-panel-inner">
+                <h2>PAUSED</h2>
+                <p>Ready when you are.</p>
+                <div className="pause-actions">
+                  <button type="button" className="pause-button" style={createMenuButtonStyle('primary')} onClick={resumeMatch}>RESUME</button>
+                  <button type="button" className="pause-button" style={createMenuButtonStyle('secondary')} onClick={() => setScreen('options')}>OPTIONS</button>
+                  <button type="button" className="pause-button" style={createMenuButtonStyle('secondary')} onClick={quitToMenu}>MAIN MENU</button>
+                </div>
               </div>
             </div>
           </div>
@@ -715,9 +842,15 @@ function App() {
             </div>
 
             <div className="weapon-buttons">
-              <button type="button" className="weapon-button front" onPointerDown={(event) => { event.preventDefault(); setWeaponButton('fireFront', true); }} onPointerUp={() => setWeaponButton('fireFront', false)} onPointerLeave={() => setWeaponButton('fireFront', false)} onPointerCancel={() => setWeaponButton('fireFront', false)}>Front</button>
-              <button type="button" className="weapon-button left" onPointerDown={(event) => { event.preventDefault(); setWeaponButton('fireLeft', true); }} onPointerUp={() => setWeaponButton('fireLeft', false)} onPointerLeave={() => setWeaponButton('fireLeft', false)} onPointerCancel={() => setWeaponButton('fireLeft', false)}>Left</button>
-              <button type="button" className="weapon-button right" onPointerDown={(event) => { event.preventDefault(); setWeaponButton('fireRight', true); }} onPointerUp={() => setWeaponButton('fireRight', false)} onPointerLeave={() => setWeaponButton('fireRight', false)} onPointerCancel={() => setWeaponButton('fireRight', false)}>Right</button>
+              <button type="button" className="weapon-button front" aria-label="Fire front" title="Front fire" style={getWeaponButtonStyle('fireFront')} onPointerDown={(event) => { event.preventDefault(); setWeaponButton('fireFront', true); }} onPointerUp={() => setWeaponButton('fireFront', false)} onPointerLeave={() => setWeaponButton('fireFront', false)} onPointerCancel={() => setWeaponButton('fireFront', false)}>
+                <span className="fire-button-icon" style={{ backgroundImage: `url(${fireFrontIcon})` }} />
+              </button>
+              <button type="button" className="weapon-button left" aria-label="Fire left" title="Left fire" style={getWeaponButtonStyle('fireLeft')} onPointerDown={(event) => { event.preventDefault(); setWeaponButton('fireLeft', true); }} onPointerUp={() => setWeaponButton('fireLeft', false)} onPointerLeave={() => setWeaponButton('fireLeft', false)} onPointerCancel={() => setWeaponButton('fireLeft', false)}>
+                <span className="fire-button-icon" style={{ backgroundImage: `url(${fireLeftIcon})` }} />
+              </button>
+              <button type="button" className="weapon-button right" aria-label="Fire right" title="Right fire" style={getWeaponButtonStyle('fireRight')} onPointerDown={(event) => { event.preventDefault(); setWeaponButton('fireRight', true); }} onPointerUp={() => setWeaponButton('fireRight', false)} onPointerLeave={() => setWeaponButton('fireRight', false)} onPointerCancel={() => setWeaponButton('fireRight', false)}>
+                <span className="fire-button-icon" style={{ backgroundImage: `url(${fireRightIcon})` }} />
+              </button>
             </div>
           </div>
         ) : null}
@@ -736,75 +869,89 @@ function App() {
         <span>Q / E = side fire</span>
         <span>P = pause</span>
       </footer>
-    </>
+    </div>
   );
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" style={{ backgroundImage: `url(${previewBackground})`, backgroundSize: 'cover', backgroundPosition: 'center' }}>
       {screen === 'menu' && (
-        <section className="panel screen-panel">
-          <h1>Pirate Battle</h1>
-          <p>Navigate the waters, destroy enemy ships and survive the match.</p>
-          <div className="stack-actions">
-            <button type="button" className="primary" onClick={startMatch}>Play</button>
-            <button type="button" className="secondary" onClick={() => setScreen('options')}>Options</button>
-          </div>
+        <section className="panel screen-panel menu-panel">
+          <div className="main-menu-window" style={{ backgroundImage: `url(${menuPanel})`, backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat' }}>
+            <img src={titlePirateBattle} alt="Pirate Battle" className="menu-title" />
+            <p className="menu-copy">SET SAIL. TAKE COMMAND.</p>
 
-          <div className="api-panel">
-            <label className="scenario-picker">
-              <span>Mock scenario</span>
-              <select value={scenario} onChange={(event) => handleScenarioChange(event.target.value as NetworkScenarioName)}>
-                <option value="success">Success</option>
-                <option value="empty">Empty</option>
-                <option value="slow">Slow</option>
-                <option value="timeout">Timeout</option>
-                <option value="http-4xx">HTTP 4xx</option>
-                <option value="http-5xx">HTTP 5xx</option>
-                <option value="network-error">Network error</option>
-                <option value="out-of-order">Out of order</option>
-              </select>
-            </label>
-            <button type="button" className="secondary" onClick={resetScenarioData}>Reset mock</button>
-          </div>
-
-          {result ? (
-            <div className="result-summary">
-              <h2>Last result</h2>
-              <p>Score: {result.score}</p>
-              <p>Duration: {formatTime(result.durationMs)}</p>
-              <p>Reason: {result.reason}</p>
+            <div className="stack-actions menu-actions">
+              <button type="button" className="primary" style={createMenuButtonStyle('primary')} onClick={startMatch}>PLAY</button>
+              <button type="button" className="secondary" style={createMenuButtonStyle('secondary')} onClick={() => setScreen('options')}>OPTIONS</button>
             </div>
-          ) : null}
 
-          <div className="dashboard-grid">
-            <div className="mini-panel">
-              <h2>Ranking</h2>
-              {rankingQuery.isLoading ? <p>Loading ranking…</p> : (
-                <ul>
-                  {(rankingQuery.data?.items ?? []).map((entry: RankingEntry) => (
-                    <li key={entry.id}>#{entry.rank} {entry.playerName} — {entry.score}</li>
-                  ))}
-                </ul>
+            <div className="menu-badge" aria-hidden="true">
+              <span className="menu-badge-mark" />
+            </div>
+
+            <p className="menu-subtitle">Navigate the islands. Survive the battle.</p>
+
+            <div className="menu-footer-actions">
+              <button type="button" className="footer-action" style={createMenuButtonStyle('secondary')} onClick={() => setMenuDetail((current) => current === 'ranking' ? null : 'ranking')}>RANKING</button>
+              <button type="button" className="footer-action" style={createMenuButtonStyle('secondary')} onClick={() => setMenuDetail((current) => current === 'history' ? null : 'history')}>MATCH HISTORY</button>
+              <button type="button" className="footer-action" style={createMenuButtonStyle('secondary')} onClick={() => setMenuDetail((current) => current === 'mock' ? null : 'mock')}>MOCK</button>
+            </div>
+          </div>
+
+          {menuDetail && (
+            <div className="menu-detail-panel">
+              {menuDetail === 'mock' && (
+                <div className="api-panel" style={{ backgroundImage: `url(${menuPanel})`, backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat' }}>
+                  <label className="scenario-picker">
+                    <span>Mock scenario</span>
+                    <select value={scenario} onChange={(event) => handleScenarioChange(event.target.value as NetworkScenarioName)}>
+                      <option value="success">Success</option>
+                      <option value="empty">Empty</option>
+                      <option value="slow">Slow</option>
+                      <option value="timeout">Timeout</option>
+                      <option value="http-4xx">HTTP 4xx</option>
+                      <option value="http-5xx">HTTP 5xx</option>
+                      <option value="network-error">Network error</option>
+                      <option value="out-of-order">Out of order</option>
+                    </select>
+                  </label>
+                  <button type="button" className="secondary" onClick={resetScenarioData}>Reset mock</button>
+                </div>
+              )}
+
+              {menuDetail === 'ranking' && (
+                <div className="mini-panel" style={{ backgroundImage: `url(${menuPanel})`, backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat' }}>
+                  <h2>Ranking</h2>
+                  {rankingQuery.isLoading ? <p>Loading ranking…</p> : (
+                    <ul>
+                      {(rankingQuery.data?.items ?? []).map((entry: RankingEntry) => (
+                        <li key={entry.id}>#{entry.rank} {entry.playerName} — {entry.score}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {menuDetail === 'history' && (
+                <div className="mini-panel" style={{ backgroundImage: `url(${menuPanel})`, backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat' }}>
+                  <h2>History</h2>
+                  {historyQuery.isLoading ? <p>Loading history…</p> : (
+                    <ul>
+                      {(historyQuery.data?.items ?? []).map((entry: MatchHistoryEntry) => (
+                        <li key={entry.id}>{entry.playerName} — {entry.score} ({entry.endReason})</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               )}
             </div>
-
-            <div className="mini-panel">
-              <h2>History</h2>
-              {historyQuery.isLoading ? <p>Loading history…</p> : (
-                <ul>
-                  {(historyQuery.data?.items ?? []).map((entry: MatchHistoryEntry) => (
-                    <li key={entry.id}>{entry.playerName} — {entry.score} ({entry.endReason})</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
+          )}
         </section>
       )}
 
       {screen === 'options' && (
-        <section className="panel screen-panel">
-          <h1>Options</h1>
+        <section className="panel screen-panel menu-panel">
+          <h1 className="menu-heading">Options</h1>
           <div className="form-grid">
             <label>
               <span>Session length (seconds)</span>
@@ -838,8 +985,8 @@ function App() {
             </label>
           </div>
           <div className="stack-actions">
-            <button type="button" className="primary" onClick={saveSettings}>Save</button>
-            <button type="button" className="secondary" onClick={() => setScreen('menu')}>Back</button>
+            <button type="button" className="primary" style={createMenuButtonStyle('primary')} onClick={saveSettings}>Save</button>
+            <button type="button" className="secondary" style={createMenuButtonStyle('secondary')} onClick={() => setScreen('menu')}>Back</button>
           </div>
         </section>
       )}
@@ -847,21 +994,25 @@ function App() {
       {screen === 'match' && renderMatchScreen()}
 
       {screen === 'result' && (
-        <section className="panel screen-panel">
-          <h1>Match result</h1>
-          {result ? (
-            <>
-              <p><strong>Score:</strong> {result.score}</p>
-              <p><strong>Time:</strong> {formatTime(result.durationMs)}</p>
-              <p><strong>Reason:</strong> {result.reason}</p>
-              <p><strong>Finished at:</strong> {new Date(result.endedAt).toLocaleString()}</p>
-            </>
-          ) : (
-            <p>No result recorded.</p>
-          )}
-          <div className="stack-actions">
-            <button type="button" className="primary" onClick={startMatch}>Play again</button>
-            <button type="button" className="secondary" onClick={() => { setGame(null); setScreen('menu'); }}>Main menu</button>
+        <section className="panel screen-panel menu-panel result-screen">
+          <div className="result-panel" style={{ backgroundImage: `url(${menuPanel})`, backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat' }}>
+            <h1 className="menu-heading">Match result</h1>
+            <div className="result-content">
+              {result ? (
+                <>
+                  <p><strong>Score:</strong> {result.score}</p>
+                  <p><strong>Time:</strong> {formatTime(result.durationMs)}</p>
+                  <p><strong>Reason:</strong> {result.reason}</p>
+                  <p><strong>Finished at:</strong> {new Date(result.endedAt).toLocaleString()}</p>
+                </>
+              ) : (
+                <p>No result recorded.</p>
+              )}
+            </div>
+            <div className="stack-actions result-actions">
+              <button type="button" className="primary" style={createMenuButtonStyle('primary')} onClick={startMatch}>Play again</button>
+              <button type="button" className="secondary" style={createMenuButtonStyle('secondary')} onClick={() => { setGame(null); setScreen('menu'); }}>Main menu</button>
+            </div>
           </div>
         </section>
       )}
