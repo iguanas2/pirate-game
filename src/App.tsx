@@ -20,6 +20,36 @@ type MatchResultRecord = {
   reason: string;
 };
 
+type TestGameSnapshot = {
+  status: GameState['status'];
+  score: number;
+  elapsedMs: number;
+  remainingMs: number;
+  player: {
+    hp: number;
+    maxHp: number;
+    position: { x: number; y: number };
+  };
+  enemies: Array<{ id: string; type: string; hp: number; maxHp: number; alive: boolean }>;
+  projectiles: Array<{ id: string; owner: string; alive: boolean }>;
+};
+
+type TestGameHarness = {
+  setSeed: (seed: number) => void;
+  readState: () => TestGameSnapshot | null;
+  startMatch: () => void;
+  pause: () => void;
+  resume: () => void;
+  pressKey: (key: 'left' | 'right' | 'up' | 'fireFront' | 'fireLeft' | 'fireRight' | 'pause', pressed: boolean) => void;
+  advance: (ms: number) => void;
+};
+
+declare global {
+  interface Window {
+    __game?: TestGameHarness;
+  }
+}
+
 const SETTINGS_KEY = 'pirate-game.settings.v1';
 const LAST_RESULT_KEY = 'pirate-game.last-result.v1';
 const defaultInputState = () => createNormalizedInputState();
@@ -128,6 +158,35 @@ function App() {
     setTouchInput(defaultInputState());
   };
 
+  const readTestState = (): TestGameSnapshot | null => {
+    const current = gameRef.current;
+    if (!current) return null;
+
+    return {
+      status: current.status,
+      score: current.score,
+      elapsedMs: current.elapsedMs,
+      remainingMs: current.remainingMs,
+      player: {
+        hp: current.player.hp,
+        maxHp: current.player.maxHp,
+        position: { ...current.player.position },
+      },
+      enemies: current.enemies.map((enemy) => ({
+        id: enemy.id,
+        type: enemy.type,
+        hp: enemy.hp,
+        maxHp: enemy.maxHp,
+        alive: enemy.alive,
+      })),
+      projectiles: current.projectiles.map((projectile) => ({
+        id: projectile.id,
+        owner: projectile.owner,
+        alive: projectile.alive,
+      })),
+    };
+  };
+
   const startMatch = () => {
     const snapshot: Partial<GameConfigSnapshot> = {
       sessionSeconds: settings.sessionSeconds,
@@ -146,13 +205,25 @@ function App() {
     setAssetError(null);
   };
 
+  const setGameStatus = (status: GameState['status']) => {
+    const current = gameRef.current;
+    if (!current || current.status === 'finished') return;
+    if (current.status === status) return;
+
+    const next = { ...current, status };
+    gameRef.current = next;
+    setGame(next);
+  };
+
   const resumeMatch = () => {
     setIsPaused(false);
+    setGameStatus('running');
     resetInput();
   };
 
   const clearPause = (source: 'manual' | 'blur' | 'visibility') => {
     setIsPaused(true);
+    setGameStatus('paused');
     resetInput();
     setLiveAnnouncement(source === 'manual' ? 'Game paused.' : 'Game paused because the page lost focus.');
   };
@@ -254,6 +325,82 @@ function App() {
     startMatch();
   };
 
+  const advanceTestClock = (ms: number) => {
+    setGame((previous) => {
+      if (!previous) return previous;
+      return step(
+        previous,
+        toSimulationInput({ ...inputRef.current, paused: isPaused || inputRef.current.paused }),
+        Math.max(0, ms) / 1000,
+      );
+    });
+  };
+
+  useEffect(() => {
+    const isTestMode = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('test') === '1';
+    if (!isTestMode) return undefined;
+
+    const harness: TestGameHarness = {
+      setSeed: (seed) => {
+        const nextState = createInitialGameState(seed, {
+          sessionSeconds: settings.sessionSeconds,
+          spawnIntervalMs: settings.spawnIntervalMs,
+          version: '1.0.0',
+          updatedAt: new Date().toISOString(),
+        });
+        setGame(nextState);
+        gameRef.current = nextState;
+        setScreen('match');
+        setIsPaused(false);
+        setGameStatus('running');
+        resetInput();
+      },
+      readState: readTestState,
+      startMatch,
+      pause: () => {
+        setIsPaused(true);
+        const current = gameRef.current;
+        if (current && current.status !== 'finished') {
+          const next = { ...current, status: 'paused' as const };
+          gameRef.current = next;
+          setGame(next);
+        }
+        resetInput();
+      },
+      resume: () => {
+        setIsPaused(false);
+        const current = gameRef.current;
+        if (current && current.status !== 'finished') {
+          const next = { ...current, status: 'running' as const };
+          gameRef.current = next;
+          setGame(next);
+        }
+        resetInput();
+      },
+      pressKey: (key, pressed) => {
+        const eventMap: Record<NonNullable<TestGameHarness['pressKey']> extends (...args: infer A) => unknown ? A[0] : never, string> = {
+          left: 'ArrowLeft',
+          right: 'ArrowRight',
+          up: 'ArrowUp',
+          fireFront: ' ',
+          fireLeft: 'q',
+          fireRight: 'e',
+          pause: 'p',
+        };
+
+        const nativeKey = eventMap[key];
+        if (!nativeKey) return;
+        window.dispatchEvent(new KeyboardEvent(pressed ? 'keydown' : 'keyup', { key: nativeKey, bubbles: true }));
+      },
+      advance: advanceTestClock,
+    };
+
+    window.__game = harness;
+    return () => {
+      delete window.__game;
+    };
+  }, [settings.sessionSeconds, settings.spawnIntervalMs, isPaused]);
+
   useEffect(() => {
     gameRef.current = game;
   }, [game]);
@@ -289,7 +436,11 @@ function App() {
         if (!isPaused) syncInputState({ fireRight: true });
       }
       if (key === 'p' && !event.repeat) {
-        setIsPaused((previous) => !previous);
+        setIsPaused((previous) => {
+          const next = !previous;
+          setGameStatus(next ? 'paused' : 'running');
+          return next;
+        });
         resetInput();
       }
     };
