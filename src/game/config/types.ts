@@ -124,8 +124,8 @@ export const DEFAULT_GAME_CONFIG_SNAPSHOT: GameConfigSnapshot = {
   shooterCooldownMs: 1800,
   projectileCooldownMs: 220,
   lateralShotSpread: 18,
-  arenaWidth: 960,
-  arenaHeight: 540,
+  arenaWidth: 2880,
+  arenaHeight: 1620,
   version: '1.0.0',
   updatedAt: new Date(0).toISOString(),
 };

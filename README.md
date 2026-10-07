@@ -1,33 +1,36 @@
 # Pirate Game
 
-Jogo de batalha naval em React + TypeScript + PixiJS, com simulação do combate, ranking/histórico mockado, e testes de browser no Playwright.
+Jogo naval em React + TypeScript + PixiJS, com simulação do combate, ranking mockado e um monte de coisa pronta pra testar no browser.
 
-## Rodando localmente
+Essa versão já tá bem no caminho do desafio: menu, opções, arena, HUD, pause, ranking/histórico, MSW e um benchmark de performance funcionando.
+
+## Como rodar
 
 ```bash
 npm install
 npm run dev -- --host 127.0.0.1
 ```
 
-Depois abre a URL que aparecer no terminal:
+Depois abre:
 
 ```text
 http://127.0.0.1:5173/
 ```
 
-Se quiser ativar o modo de instrumentação de teste:
+Se quiser entrar no modo de instrumentação de teste:
 
 ```text
 http://127.0.0.1:5173/?test=1
 ```
 
-## Comandos úteis
+## Comandos chave
 
 ```bash
 npm run dev
 npm run build
 npm run lint
-npx playwright test e2e/step10.spec.ts --project=chromium-desktop
+npm run perf:benchmark
+npx playwright test e2e/challenge.spec.ts --project=chromium-desktop
 npx playwright show-report
 ```
 
@@ -40,9 +43,9 @@ npx playwright show-report
 - `Q`: disparo lateral esquerdo
 - `E`: disparo lateral direito
 - `P`: pausar/despausar
-- toque: joystick e disparo na tela
+- toque: joystick e botões na tela
 
-## Stack do projeto
+## Stack usada
 
 - renderização: PixiJS
 - UI: React 19
@@ -50,25 +53,46 @@ npx playwright show-report
 - dados e mocks: Axios + TanStack Query + MSW
 - testes: Playwright
 
-## Documentação
+## Documentação relevante
 
 - Arquitetura: [ARCHITECTURE.md](ARCHITECTURE.md)
-- Profiling: [docs/performance-profile.md](docs/performance-profile.md)
-- Licenças/assets: [LICENSES.md](LICENSES.md)
-- Relatório de testes: [reports/playwright-step10.md](reports/playwright-step10.md)
-- Checklist de perfil: [reports/performance-checklist.md](reports/performance-checklist.md)
+- Perfil de performance: [docs/performance-profile.md](docs/performance-profile.md)
+- Benchmark: [reports/performance-benchmark.md](reports/performance-benchmark.md)
+- Checklist de profiling: [reports/performance-checklist.md](reports/performance-checklist.md)
+- Relatório de testes: [e2e/challenge.spec.ts](e2e/challenge.spec.ts)
 
-## Performance
+## Performance e benchmark
 
-O passo 11 ficou documentado em [docs/performance-profile.md](docs/performance-profile.md). Ali tem o passo a passo para medir:
+Tem um benchmark pronto em [e2e/perf.spec.ts](e2e/perf.spec.ts) e o passo a passo de medição em [docs/performance-profile.md](docs/performance-profile.md).
 
-- FPS
-- p95 de frame time
-- número de entidades em 3 minutos
-- uso de memória após 5 ciclos de iniciar/jogar/sair
+A ideia é medir:
+
+- FPS médio
+- p95 do frame time
+- número de entidades
+- uso de memória
+- comportamento após iniciar, jogar e sair da partida
+
+Essa parte é importante porque o desafio pede evidência, não só “parece que tá fluido”.
 
 ## Observações rápidas
 
 - o modo `?test=1` expõe `window.__game` para validar o estado real do jogo no browser;
-- ranking e histórico são mockados para simular falhas e recuperação de rede;
-- os relatórios ficam em `reports/` para manter evidência de regressão e profiling.
+- ranking e histórico usam mock de rede via MSW, com cenários de falha e recuperação;
+- a app salva opções e último resultado no `localStorage`;
+- a simulação foi pensada pra ser determinística e reproduzível em teste.
+
+## Estado atual
+
+Tá funcionando como um MVP forte do desafio:
+
+- combate em arena com inimigos
+- HUD com vida, pontos e tempo
+- menu e pause
+- ranking/histórico mockado
+- testes E2E cobrindo o fluxo principal
+- benchmark de performance documentado
+
+Ainda tem uma diferença importante com a entrega “full challenge”: o benchmark atual foi medido em Chromium headless e ainda fica abaixo da referência de 60 FPS. Isso não é um bug do processo; é um diagnóstico real do ambiente usado para medir.
+
+Se a ideia é fechar o desafio de verdade, o próximo passo é validar em ambiente de referência real, com Chrome desktop completo e sem headless, pra registrar a baseline final com menos ruído.

@@ -15,6 +15,7 @@ export interface Island {
   x: number;
   y: number;
   radius: number;
+  size: 3 | 4;
 }
 
 export interface EnemyUnit {
@@ -95,9 +96,18 @@ const makeRng = (seed: number) => {
 };
 
 const createIslands = (): Island[] => [
-  { id: 'island-1', x: 240, y: 180, radius: 56 },
-  { id: 'island-2', x: 660, y: 240, radius: 62 },
-  { id: 'island-3', x: 470, y: 440, radius: 48 },
+  { id: 'island-1', x: 620, y: 430, radius: 54, size: 3 },
+  { id: 'island-2', x: 1080, y: 760, radius: 62, size: 4 },
+  { id: 'island-3', x: 1560, y: 500, radius: 56, size: 3 },
+  { id: 'island-4', x: 1920, y: 980, radius: 66, size: 4 },
+  { id: 'island-5', x: 2420, y: 620, radius: 58, size: 3 },
+  { id: 'island-6', x: 1220, y: 1220, radius: 68, size: 4 },
+  { id: 'island-7', x: 2140, y: 1360, radius: 54, size: 3 },
+  { id: 'island-8', x: 2720, y: 1100, radius: 70, size: 4 },
+  { id: 'island-9', x: 940, y: 1460, radius: 58, size: 3 },
+  { id: 'island-10', x: 1820, y: 300, radius: 62, size: 4 },
+  { id: 'island-11', x: 2400, y: 1460, radius: 60, size: 3 },
+  { id: 'island-12', x: 410, y: 1080, radius: 52, size: 3 },
 ];
 
 const circleCollidesWithIsland = (center: Vec2, radius: number, island: Island) =>
